@@ -4823,6 +4823,7 @@ public class SqlToRelConverter {
               fieldOffsets.put(f.getName(), f.getIndex());
             }
           }
+//          final Map<String, Integer> map =  Collections.unmodifiableMap(fieldOffsets);
           final Map<String, Integer> map = ImmutableMap.copyOf(fieldOffsets);
           return Pair.of(node, map);
         }

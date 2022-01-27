@@ -201,6 +201,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.function.BiFunction;
+import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.function.UnaryOperator;
 import java.util.stream.Collectors;
@@ -4106,14 +4107,14 @@ public class SqlToRelConverter {
     } else {
       qualified = SqlQualified.create(null, 1, null, identifier);
     }
-    final Pair<RexNode, @Nullable Map<String, Integer>> e0 = requireNonNull(
+    final Pair<RexNode, @Nullable Function<String, Integer>> e0 = requireNonNull(
         bb.lookupExp(qualified),
         () -> "no expression found for " + qualified);
     RexNode e = e0.left;
     for (String name : qualified.suffix()) {
       if (e == e0.left && e0.right != null) {
         Integer i = requireNonNull(
-            e0.right.get(name),
+            e0.right.apply(name),
             () -> "e0.right.get(name) produced null for " + name);
         e = rexBuilder.makeFieldAccess(e, i);
       } else {
@@ -4787,7 +4788,7 @@ public class SqlToRelConverter {
      * @return a {@link RexFieldAccess} or {@link RexRangeRef}, or null if
      * not found
      */
-    @Nullable Pair<RexNode, @Nullable Map<String, Integer>> lookupExp(SqlQualified qualified) {
+    @Nullable Pair<RexNode, @Nullable Function<String, Integer>> lookupExp(SqlQualified qualified) {
       if (nameToNodeMap != null && qualified.prefixLength == 1) {
         RexNode node = nameToNodeMap.get(qualified.identifier.names.get(0));
         if (node == null) {
@@ -4817,52 +4818,55 @@ public class SqlToRelConverter {
             new LookupContext(this, inputs, systemFieldList.size());
         final RexNode node = lookup(resolve.path.steps().get(0).i, rels);
         assert node != null;
-        if (relDataTypeFieldMap.containsKey(rowType)) {
-          return Pair.of(node, relDataTypeFieldMap.get(rowType));
-        }
-        final Map<String, Integer> fieldOffsets = new HashMap<>();
-        for (RelDataTypeField f : resolve.rowType().getFieldList()) {
-          if (!fieldOffsets.containsKey(f.getName())) {
-            fieldOffsets.put(f.getName(), f.getIndex());
-          }
-        }
-        final Map<String, Integer> map = ImmutableMap.copyOf(fieldOffsets);
-        relDataTypeFieldMap.put(rowType, map);
-        return Pair.of(node, map);
+        Function<String, Integer> function =  ( name) -> rowType.getFieldNames().indexOf(name);
+        return Pair.of(node, function);
+//        if (relDataTypeFieldMap.containsKey(rowType)) {
+//          return Pair.of(node, relDataTypeFieldMap.get(rowType));
+//        }
+//        final Map<String, Integer> fieldOffsets = new HashMap<>();
+//        for (RelDataTypeField f : resolve.rowType().getFieldList()) {
+//          if (!fieldOffsets.containsKey(f.getName())) {
+//            fieldOffsets.put(f.getName(), f.getIndex());
+//          }
+//        }
+//        final Map<String, Integer> map = ImmutableMap.copyOf(fieldOffsets);
+//        relDataTypeFieldMap.put(rowType, map);
+//        return Pair.of(node, map);
       } else {
-        // We're referencing a relational expression which has not been
-        // converted yet. This occurs when from items are correlated,
-        // e.g. "select from emp as emp join emp.getDepts() as dept".
-        // Create a temporary expression.
-        DeferredLookup lookup =
-            new DeferredLookup(this, qualified.identifier.names.get(0));
-        final CorrelationId correlId = cluster.createCorrel();
-        mapCorrelToDeferred.put(correlId, lookup);
-        if (resolve.path.steps().get(0).i < 0) {
-          return Pair.of(rexBuilder.makeCorrel(rowType, correlId), null);
-        } else {
-          final RelDataTypeFactory.Builder builder = typeFactory.builder();
-          final ListScope ancestorScope1 = (ListScope)
-              requireNonNull(resolve.scope, "resolve.scope");
-          final ImmutableMap.Builder<String, Integer> fields =
-              ImmutableMap.builder();
-          int i = 0;
-          int offset = 0;
-          for (SqlValidatorNamespace c : ancestorScope1.getChildren()) {
-            builder.addAll(c.getRowType().getFieldList());
-            if (i == resolve.path.steps().get(0).i) {
-              for (RelDataTypeField field : c.getRowType().getFieldList()) {
-                fields.put(field.getName(), field.getIndex() + offset);
-              }
-            }
-            ++i;
-            offset += c.getRowType().getFieldCount();
-          }
-          final RexNode c =
-              rexBuilder.makeCorrel(builder.uniquify().build(), correlId);
-          return Pair.of(c, fields.build());
-        }
+//        // We're referencing a relational expression which has not been
+//        // converted yet. This occurs when from items are correlated,
+//        // e.g. "select from emp as emp join emp.getDepts() as dept".
+//        // Create a temporary expression.
+//        DeferredLookup lookup =
+//            new DeferredLookup(this, qualified.identifier.names.get(0));
+//        final CorrelationId correlId = cluster.createCorrel();
+//        mapCorrelToDeferred.put(correlId, lookup);
+//        if (resolve.path.steps().get(0).i < 0) {
+//          return Pair.of(rexBuilder.makeCorrel(rowType, correlId), null);
+//        } else {
+//          final RelDataTypeFactory.Builder builder = typeFactory.builder();
+//          final ListScope ancestorScope1 = (ListScope)
+//              requireNonNull(resolve.scope, "resolve.scope");
+//          final ImmutableMap.Builder<String, Integer> fields =
+//              ImmutableMap.builder();
+//          int i = 0;
+//          int offset = 0;
+//          for (SqlValidatorNamespace c : ancestorScope1.getChildren()) {
+//            builder.addAll(c.getRowType().getFieldList());
+//            if (i == resolve.path.steps().get(0).i) {
+//              for (RelDataTypeField field : c.getRowType().getFieldList()) {
+//                fields.put(field.getName(), field.getIndex() + offset);
+//              }
+//            }
+//            ++i;
+//            offset += c.getRowType().getFieldCount();
+//          }
+//          final RexNode c =
+//              rexBuilder.makeCorrel(builder.uniquify().build(), correlId);
+//          return Pair.of(c, fields.build());
+//        }
       }
+      return null;
     }
 
     /**

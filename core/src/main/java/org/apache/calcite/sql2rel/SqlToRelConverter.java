@@ -4106,16 +4106,12 @@ public class SqlToRelConverter {
     } else {
       qualified = SqlQualified.create(null, 1, null, identifier);
     }
-    final Pair<RexNode, @Nullable Map<String, Integer>> e0 = requireNonNull(
-        bb.lookupExp(qualified),
-        () -> "no expression found for " + qualified);
+    final Pair<RexNode, @Nullable BiFunction<RexNode, String, RexNode>> e0 =
+        bb.lookupExp(qualified);
     RexNode e = e0.left;
     for (String name : qualified.suffix()) {
       if (e == e0.left && e0.right != null) {
-        Integer i = requireNonNull(
-            e0.right.get(name),
-            () -> "e0.right.get(name) produced null for " + name);
-        e = rexBuilder.makeFieldAccess(e, i);
+        e = e0.right.apply(e, name);
       } else {
         final boolean caseSensitive = true; // name already fully-qualified
         if (identifier.isStar() && bb.scope instanceof MatchRecognizeScope) {
@@ -4787,7 +4783,8 @@ public class SqlToRelConverter {
      * @return a {@link RexFieldAccess} or {@link RexRangeRef}, or null if
      * not found
      */
-    @Nullable Pair<RexNode, @Nullable Map<String, Integer>> lookupExp(SqlQualified qualified) {
+    Pair<RexNode, @Nullable BiFunction<RexNode, String, RexNode>> lookupExp(
+        SqlQualified qualified) {
       if (nameToNodeMap != null && qualified.prefixLength == 1) {
         RexNode node = nameToNodeMap.get(qualified.identifier.names.get(0));
         if (node == null) {
@@ -4817,18 +4814,12 @@ public class SqlToRelConverter {
             new LookupContext(this, inputs, systemFieldList.size());
         final RexNode node = lookup(resolve.path.steps().get(0).i, rels);
         assert node != null;
-        if (relDataTypeFieldMap.containsKey(rowType)) {
-          return Pair.of(node, relDataTypeFieldMap.get(rowType));
-        }
-        final Map<String, Integer> fieldOffsets = new HashMap<>();
-        for (RelDataTypeField f : resolve.rowType().getFieldList()) {
-          if (!fieldOffsets.containsKey(f.getName())) {
-            fieldOffsets.put(f.getName(), f.getIndex());
-          }
-        }
-        final Map<String, Integer> map = ImmutableMap.copyOf(fieldOffsets);
-        relDataTypeFieldMap.put(rowType, map);
-        return Pair.of(node, map);
+        return Pair.of(node, (e, fieldName) -> {
+          final RelDataTypeField field =
+              requireNonNull(rowType.getField(fieldName, true, false),
+                  () -> "field " + fieldName);
+          return rexBuilder.makeFieldAccess(e, field.getIndex());
+        });
       } else {
         // We're referencing a relational expression which has not been
         // converted yet. This occurs when from items are correlated,
@@ -4860,7 +4851,11 @@ public class SqlToRelConverter {
           }
           final RexNode c =
               rexBuilder.makeCorrel(builder.uniquify().build(), correlId);
-          return Pair.of(c, fields.build());
+          final ImmutableMap<String, Integer> fieldMap = fields.build();
+          return Pair.of(c, (e, fieldName) -> {
+            final int j = requireNonNull(fieldMap.get(fieldName), "field " + fieldName);
+            return rexBuilder.makeFieldAccess(e, j);
+          });
         }
       }
     }
